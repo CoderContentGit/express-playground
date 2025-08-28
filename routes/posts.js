@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { getPaginatedPosts } from "../controllers/postsController.js";
+import { getPosts } from "../controllers/postsController.js";
 
 const router = Router();
 
-router.get("/", getPaginatedPosts);
+router.get("/", getPosts);
 
 export default router;
