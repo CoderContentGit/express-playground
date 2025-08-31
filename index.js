@@ -1,34 +1,54 @@
-const express = require('express');
+const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
+const redis = require("redis");
+const searchDatabase = require("./service");
+
+const redisClient = redis.createClient();
+const ONE_HOUR = 3600;
 
 app.use(express.json());
 
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Welcome to your Express.js playground!',
-    timestamp: new Date().toISOString()
-  });
+app.get("/search", async (req, res) => {
+  const query = req.query.q;
+  if (!query) return res.status(400).json({ error: "Query parameter missing" });
+
+  const key = "search:" + query.toLowerCase();
+  let results = null;
+
+  try {
+    const value = await redisClient.get(key);
+    if (value) {
+      results = JSON.parse(value);
+      console.log("Cache hit");
+    } else {
+      console.log("Cache miss");
+      results = await searchDatabase(query);
+      await redisClient.set(key, JSON.stringify(results), { EX: ONE_HOUR, NX: true });
+    }
+
+    res.json(results);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', uptime: process.uptime() });
-});
+(async () => {
+  try {
+    redisClient.on("error", (err) => console.log("Redis Client Error", err));
+    redisClient.on("ready", () => console.log("Redis client ready"));
 
-app.get('/api/hello', (req, res) => {
-  const name = req.query.name || 'World';
-  res.json({ greeting: `Hello, ${name}!` });
-});
+    await redisClient.connect();
+    console.log("Redis connected");
 
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
-// Start the server
-app.listen(PORT, () => {
-  console.log(`🚀 Express server is running on http://localhost:${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`👋 Try: http://localhost:${PORT}/api/hello?name=YourName`);
-});
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error("Failed to connect to Redis", err);
+    process.exit(1);
+  }
+})();
 
 module.exports = app;
